@@ -25,15 +25,15 @@
 #define DEFAULT_BAUD_RATE 9600
 
 // Настройки Wi-Fi
-const char* ssid     = "ARKHIOTIKA"; // Имя Wi-Fi сети
-const char* password = "15526000";   // Пароль от Wi-Fi
+const char* ssid     = "Your_WiFi_SSID"; // Имя Wi-Fi сети
+const char* password = "passw0rd123";   // Пароль от Wi-Fi
 
 // Настройки MQTT
 const int   mqtt_json_buffer_size = 512;               // Расширенный буффер для большинства возможных json'ов
-const char* mqtt_server           = "192.168.1.108";   // IP-адрес вашего MQTT-брокера (например, Home Assistant)
+const char* mqtt_server           = "192.168.1.5";     // IP-адрес вашего MQTT-брокера (например, Home Assistant)
 const int   mqtt_port             = 1883;              // Стандартный порт для MQTT-брокера
-const char* mqtt_user             = "esp_locker";      // Имя пользователя MQTT (если требуется)
-const char* mqtt_password         = "8622esphomelock"; // Пароль MQTT (если требуется)
+const char* mqtt_user             = "homeassistant";   // Имя пользователя MQTT (если требуется)
+const char* mqtt_password         = "mypass_secure";   // Пароль MQTT (если требуется)
 const char* mqtt_topic_lock_op    = "home/lock/op";    // Топик для управления замком
 const char* mqtt_topic_lock_state = "home/lock/state"; // Топик для синхронизации статусов
 
