@@ -22,6 +22,8 @@ This project is a smart lock based on the ESP8266 microcontroller. It integrates
 - **Home Assistant**: The smart home automation system.
 - **MQTT Broker**: For message exchange between devices.
 
+![principal diagram](media-schema.png)
+
 ## Installation and Setup
 
 ### 1. Assemble the Device
