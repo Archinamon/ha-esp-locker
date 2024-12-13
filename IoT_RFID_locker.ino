@@ -26,18 +26,19 @@
 
 // Настройки Wi-Fi
 const char* ssid     = "Your_WiFi_SSID"; // Имя Wi-Fi сети
-const char* password = "passw0rd123";   // Пароль от Wi-Fi
+const char* password = "passw0rd123";    // Пароль от Wi-Fi
 
 // Настройки MQTT
-const int   mqtt_json_buffer_size = 512;               // Расширенный буффер для большинства возможных json'ов
+const int   mqtt_json_buffer_size = 1024;              // Расширенный буффер для большинства возможных json'ов
 const char* mqtt_server           = "192.168.1.5";     // IP-адрес вашего MQTT-брокера (например, Home Assistant)
 const int   mqtt_port             = 1883;              // Стандартный порт для MQTT-брокера
-const char* mqtt_user             = "homeassistant";   // Имя пользователя MQTT (если требуется)
-const char* mqtt_password         = "mypass_secure";   // Пароль MQTT (если требуется)
+const char* mqtt_user             = "esp_locker";      // Имя пользователя MQTT (если требуется)
+const char* mqtt_password         = "8622esphomelock"; // Пароль MQTT (если требуется)
 const char* mqtt_topic_lock_op    = "home/lock/op";    // Топик для управления замком
 const char* mqtt_topic_lock_state = "home/lock/state"; // Топик для синхронизации статусов
+const char* mqtt_topic_lock_logs  = "home/lock/logs";  // Топик для отправки логов
 
-const char* mqtt_topic_locker_discovery       = "homeassistant/lock/whiskey_locker/config";          // Топик для дискавери устройства
+const char* mqtt_topic_locker_discovery       = "homeassistant/lock/whiskey_locker/config";                         // Топик для дискавери устройства
 const char* mqtt_topic_btn_reboot_discovery   = "homeassistant/button/whiskey_locker/whiskey_locker_reboot/config"; // Топик для дискавери кнопки ребута
 const char* mqtt_topic_btn_add_card_discovery = "homeassistant/button/whiskey_locker/whiskey_locker_setup/config";  // Топик для дискавери кнопки новой карты
 
@@ -94,7 +95,7 @@ void readMasterCard(unsigned char uid[CARD_SIZE]);
 void addAllowedCard(unsigned char uid[CARD_SIZE]);
 bool isCardAllowed(unsigned char uid[CARD_SIZE]);
 bool compareUID(unsigned char uid1[CARD_SIZE], unsigned char uid2[CARD_SIZE]);
-void printCardUID(unsigned char uid[CARD_SIZE]);
+String printCardUID(unsigned char uid[CARD_SIZE]);
 
 // Внутренний стейт замка
 void setOperationMode(OperatingMode mode);
@@ -150,7 +151,7 @@ void prepareRFID() {
   EEPROM.begin(EEPROM_SIZE);
   
   checkAndPrintMasterCard();
-  Serial.println("RFID System ready to interact");
+  publishDebugLogs("RFID System ready to interact");
 }
 
 void prepareSolenoid() {
@@ -160,12 +161,12 @@ void prepareSolenoid() {
 void setupWatchdog() {
   // таймер аварийного рестарта
   ESP.wdtEnable(RESTART_LIMIT);
-  Serial.println("Emergency restart watchdog has been attached");
+  publishDebugLogs("Emergency restart watchdog has been attached");
 }
 
 void setupHomeAssistant() {
   if (!isCurrentlyOperating(CONNECTING)) {
-    Serial.println("ERROR! This method should be called only in Connecting mode!");
+    publishDebugLogs("ERROR! This method should be called only in Connecting mode!");
     return;
   }
 
@@ -189,7 +190,7 @@ void setupHomeAssistant() {
 
 void taskEstablishWiFiConnection() {
   if (!isCurrentlyOperating(CONNECTING)) {
-    Serial.println("Состояния Wi-Fi: успешно!");
+    publishDebugLogs("Состояния Wi-Fi: успешно!");
     return;
   }
 
@@ -210,14 +211,14 @@ void taskEstablishWiFiConnection() {
 
     wifiConnected = true;
   } else {
-    Serial.println("\nНе удалось подключиться к Wi-Fi. Попробуем снова.");
+    publishDebugLogs("\nНе удалось подключиться к Wi-Fi. Попробуем снова.");
     delay(2000);
   }
 }
 
 void taskSubscribeToMQTTBroker() {
   while (!wifiConnected) {
-    Serial.println("Ждём Wi-FI...");
+    publishDebugLogs("Ждём Wi-FI...");
     delay(1000);
     return;
   }
@@ -225,7 +226,7 @@ void taskSubscribeToMQTTBroker() {
   while (!mqttClient.connected()) {
     Serial.print("Подключение к MQTT...");
     if (mqttClient.connect("ESP8266Client", mqtt_user, mqtt_password)) {
-      Serial.println("Подключено!");
+      publishDebugLogs("Подключено!");
 
       mqttClient.subscribe(mqtt_topic_lock_op);
       publishMqttStatus(BOOTING);
@@ -240,14 +241,10 @@ void taskSubscribeToMQTTBroker() {
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Получено сообщение [");
-  Serial.print(topic);
-  Serial.print("]: ");
   String message;
   for (int i = 0; i < length; i++) {
     message += (char) payload[i];
   }
-  Serial.println(message);
 
   // Управление замком
   if (String(topic) == mqtt_topic_lock_op) {
@@ -263,6 +260,8 @@ void mqttMainLooper() {
 }
 
 void mqttProceedOnTopicMessageReceived(String msg) {
+  publishDebugLogs(String("Got message: " + msg).c_str());
+
   if (msg == "lock") {
     forceCloseLocker();
   }
@@ -276,7 +275,7 @@ void mqttProceedOnTopicMessageReceived(String msg) {
   }
 
   if (msg == "new_card") {
-    Serial.println("Wait to setup new safe card");
+    publishDebugLogs("Wait to setup new safe card");
 
     setOperationMode(WAITING_FOR_NEW_CARD);
     timer.once(10, resetOperatingMode);
@@ -310,8 +309,8 @@ void tripleShortBeep() {
 
 void publishMqttStatus(LockStatus status) {
   mqttClient.publish(mqtt_topic_lock_state, LockStatusStrings[status]);
-  Serial.print("The status has been sent: ");
-  Serial.println(LockStatusStrings[status]);
+  publishDebugLogs("The status has been sent: ");
+  publishDebugLogs(LockStatusStrings[status]);
 }
 
 void startMqttDiscovery() {
@@ -334,8 +333,6 @@ void startMqttDiscovery() {
   // Отправка замка
   char lockPayload[512];
   serializeJson(lockDoc, lockPayload);
-  Serial.println("Sending discovery data:");
-  Serial.println(lockPayload);
   mqttClient.publish(mqtt_topic_locker_discovery, lockPayload);
 
   // StaticJsonDocument для кнопки Reboot
@@ -353,8 +350,6 @@ void startMqttDiscovery() {
   // Отправка кнопки Reboot
   char rebootPayload[512];
   serializeJson(rebootDoc, rebootPayload);
-  Serial.println("Sending discovery data:");
-  Serial.println(rebootPayload);
   mqttClient.publish(mqtt_topic_btn_reboot_discovery, rebootPayload);
 
   // StaticJsonDocument для кнопки Add a new card
@@ -372,10 +367,8 @@ void startMqttDiscovery() {
   // Отправка кнопки Add a new card
   char setupPayload[512];
   serializeJson(setupDoc, setupPayload);
-  Serial.println("Sending discovery data:");
-  Serial.println(setupPayload);
   mqttClient.publish(mqtt_topic_btn_add_card_discovery, setupPayload);
-  Serial.println("[MQTT] The discovery config has been sent!");
+  publishDebugLogs("[MQTT] The discovery config has been sent!");
 }
 
 void reboot() {
@@ -384,7 +377,7 @@ void reboot() {
 }
 
 void activateSolenoid(int waitMs) {
-  Serial.println("Operating the locker solenoid");
+  publishDebugLogs("Operating the locker solenoid");
 
   // Вращаем сервопривод
   digitalWrite(RELAY_PIN1, RELAY_OPEN);
@@ -393,7 +386,7 @@ void activateSolenoid(int waitMs) {
   // Остановка
   digitalWrite(RELAY_PIN1, RELAY_CLOSED);
 
-  Serial.println("End the solenoid operation");
+  publishDebugLogs("End the solenoid operation");
 }
 
 // Returns true if mastercard was set, false otherwise
@@ -402,8 +395,8 @@ bool checkAndPrintMasterCard() {
   readMasterCard(masterUID);
 
   if (!isCardUnset(masterUID)) {
-    Serial.println("Retrieving master card from mem");
-    printCardUID(masterUID);
+    publishDebugLogs("Retrieving master card from mem");
+    publishDebugLogs(printCardUID(masterUID).c_str());
     return true;
   }
 
@@ -447,8 +440,7 @@ void processCard(unsigned char cardUID[CARD_SIZE]) {
   if (isCurrentlyOperating(WAITING_FOR_SETUP)) {
     // Записываем первую карту как мастер-карту
     saveMasterCard(cardUID);
-    Serial.println("Master card set!");
-    printCardUID(cardUID);
+    publishDebugLogs(printCardUID(cardUID).c_str());
     tripleShortBeep();
     setOperationMode(NORMAL);
     return;
@@ -456,20 +448,19 @@ void processCard(unsigned char cardUID[CARD_SIZE]) {
 
   if (isCurrentlyOperating(WAITING_FOR_NEW_CARD)) {
     addAllowedCard(cardUID);
-    Serial.println("New additional card was saved!");
-    printCardUID(cardUID);
+    publishDebugLogs(printCardUID(cardUID).c_str());
     tripleShortBeep();
     setOperationMode(NORMAL);
     return;
   }
 
   if (!isCurrentlyOperating(NORMAL)) {
-    Serial.println("Unexpected state... stop processing.");
+    publishDebugLogs("Unexpected state... stop processing.");
     return;
   }
 
   if (isCardAllowed(cardUID)) {
-    Serial.println("Allowed card detected. Access granted.");
+    publishDebugLogs("Allowed card detected. Access granted.");
     accessGranted();
     return;
   }
@@ -500,7 +491,7 @@ void accessGranted() {
 }
 
 void accessDenied() {
-  Serial.println("Unknown card detected. Access denied.");
+  publishDebugLogs("Unknown card detected. Access denied.");
   singleLongBeep();
 }
 
@@ -524,7 +515,7 @@ void saveMasterCard(unsigned char uid[CARD_SIZE]) {
     EEPROM.write(MASTER_CARD_ADDR + i, uid[i]);
   }
   EEPROM.commit();
-  Serial.println("Master card saved.");
+  publishDebugLogs("Master card saved.");
 }
 
 void readMasterCard(unsigned char uid[CARD_SIZE]) {
@@ -541,11 +532,11 @@ void addAllowedCard(unsigned char uid[CARD_SIZE]) {
         EEPROM.write(addr + j, uid[j]);
       }
       EEPROM.commit();
-      Serial.println("Allowed card added.");
+      publishDebugLogs("Allowed card added.");
       return;
     }
   }
-  Serial.println("No space for additional cards.");
+  publishDebugLogs("No space for additional cards.");
 }
 
 bool isCardAllowed(unsigned char uid[CARD_SIZE]) {
@@ -582,15 +573,16 @@ bool compareUID(unsigned char uid1[CARD_SIZE], unsigned char uid2[CARD_SIZE]) {
   return true;
 }
 
-void printCardUID(unsigned char uid[CARD_SIZE]) {
-  Serial.print("Card UID: ");
+String printCardUID(unsigned char uid[CARD_SIZE]) {
+  String msg = "Card UID: ";
   for (int i = 0; i < CARD_SIZE; i++) {
-    Serial.print(uid[i], HEX);
+    msg += String(uid[i]);
     if (i < CARD_SIZE - 1) {
-      Serial.print(":");
+      msg += ":";
     }
   }
-  Serial.println();
+
+  return msg;
 }
 
 void setOperationMode(OperatingMode mode) {
@@ -625,4 +617,9 @@ JsonObject createAvailabilityInfo(JsonDocument& doc) {
   availability["payload_available"] = "locked";
   availability["payload_not_available"] = "offline";
   return availability;
+}
+
+void publishDebugLogs(const char* message) {
+  Serial.println(message);
+  mqttClient.publish(mqtt_topic_lock_logs, message);
 }
