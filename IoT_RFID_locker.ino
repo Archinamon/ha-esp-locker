@@ -1,48 +1,52 @@
 #include <SoftwareSerial.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266HTTPUpdateServer.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <Ticker.h>
 
-#define RFID_RX D5     // Подключите TX модуля RFID к пину D5 (GPIO14)
-#define RFID_TX D6     // Подключите RX модуля RFID к пину D6 (GPIO12)
-#define EEPROM_SIZE 64 // Размер памяти EEPROM
-#define BUZZER_PIN D7  // Пин, к которому подключён KY-012
-#define RELAY_PIN1 D8  // Пин реле, который управляет соленоидом
-
-// Параметры карт
-#define CARD_SIZE           5 // Размер UID карты
-#define MASTER_CARD_ADDR    0 // Адрес хранения мастер-карты
-#define ALLOWED_CARDS_ADDR 10 // Адрес хранения разрешённых карт
-#define MAX_CARDS           5 // Максимум дополнительных карт
-
-// Таймаут до аварийного рестарта
-#define RESTART_LIMIT 60000
-#define RELAY_OPEN 1
-#define RELAY_CLOSED 0
-
 #define DEFAULT_BAUD_RATE 9600
 
-// Настройки Wi-Fi
-const char* ssid     = "Your_WiFi_SSID"; // Имя Wi-Fi сети
-const char* password = "passw0rd123";    // Пароль от Wi-Fi
+#define RFID_RX     D5     // Connect the RFID module's TX to D5 pin (GPIO14)
+#define RFID_TX     D6     // Connect the RFID module's RX to D6 pin (GPIO12)
+#define BUZZER_PIN  D7     // Buzzer KY-012 pin
+#define RELAY_PIN1  D8     // Relay pin to operate the solenoid
+#define EEPROM_SIZE 64     // Memory EEPROM size
 
-// Настройки MQTT
-const int   mqtt_json_buffer_size = 1024;              // Расширенный буффер для большинства возможных json'ов
-const char* mqtt_server           = "192.168.1.5";     // IP-адрес вашего MQTT-брокера (например, Home Assistant)
-const int   mqtt_port             = 1883;              // Стандартный порт для MQTT-брокера
-const char* mqtt_user             = "esp_locker";      // Имя пользователя MQTT (если требуется)
-const char* mqtt_password         = "8622esphomelock"; // Пароль MQTT (если требуется)
-const char* mqtt_topic_lock_op    = "home/lock/op";    // Топик для управления замком
-const char* mqtt_topic_lock_state = "home/lock/state"; // Топик для синхронизации статусов
-const char* mqtt_topic_lock_logs  = "home/lock/logs";  // Топик для отправки логов
+// Cards settings
+#define CARD_SIZE           5 // Size of UID card
+#define MASTER_CARD_ADDR    0 // Master-card address
+#define ALLOWED_CARDS_ADDR 10 // Additional cards address
+#define MAX_CARDS           5 // Limit of additional cards
 
-const char* mqtt_topic_locker_discovery       = "homeassistant/lock/whiskey_locker/config";                         // Топик для дискавери устройства
-const char* mqtt_topic_btn_reboot_discovery   = "homeassistant/button/whiskey_locker/whiskey_locker_reboot/config"; // Топик для дискавери кнопки ребута
-const char* mqtt_topic_btn_add_card_discovery = "homeassistant/button/whiskey_locker/whiskey_locker_setup/config";  // Топик для дискавери кнопки новой карты
+// Emergency reboot timeout
+#define RESTART_LIMIT 60000
 
-// Флаг подключения к Wi-Fi
+// Open/closethe relay on NO-channel
+#define RELAY_OPEN   1
+#define RELAY_CLOSED 0
+
+// Wi-Fi settings
+const char* ssid     = "Your_WiFi_SSID";
+const char* password = "passw0rd123";
+
+// MQTT settings
+const int   mqtt_json_buffer_size = 1024;              // Extended buffer for mostly all of json's
+const char* mqtt_server           = "192.168.1.5";     // IP-address of your MQTT-broker (e.g., Home Assistant)
+const int   mqtt_port             = 1883;              // Default port of MQTT-broker
+const char* mqtt_user             = "esp_locker";      // Username of MQTT-client (if you need it)
+const char* mqtt_password         = "8622esphomelock"; // Pass of MQTT-client (if you need it)
+const char* mqtt_topic_lock_op    = "home/lock/op";    // Lock operations topic
+const char* mqtt_topic_lock_state = "home/lock/state"; // Sync statuses topic
+const char* mqtt_topic_lock_logs  = "home/lock/logs";  // Debug logs topic (be careful to use only in trusted network)
+
+const char* mqtt_topic_locker_discovery       = "homeassistant/lock/whiskey_locker/config";                         // The device discovery topic
+const char* mqtt_topic_btn_reboot_discovery   = "homeassistant/button/whiskey_locker/whiskey_locker_reboot/config"; // Reboot button discovery topic
+const char* mqtt_topic_btn_add_card_discovery = "homeassistant/button/whiskey_locker/whiskey_locker_setup/config";  // Add-new-card button discovery topic
+
+// Wi-Fi params & mode
 bool wifiConnected = false;
 enum OperatingMode {
   NORMAL,
@@ -51,7 +55,7 @@ enum OperatingMode {
   WAITING_FOR_NEW_CARD
 };
 
-// Текущий статус замка в HomeAssistant
+// Current status in HomeAssistant
 enum LockStatus {
   OPEN,
   BOOTING,
@@ -65,24 +69,25 @@ const char* LockStatusStrings[] = {
   "locked"
 };
 
-// Конфигурационные методы
+// Configs...
+void setupOTAUpdate();
 void prepareRFID();
 void prepareSolenoid();
 void setupWatchdog();
 void setupHomeAssistant();
 
-// Сеть
+// Network
 void taskEstablishWiFiConnection();
 void taskSubscribeToMQTTBroker();
 
-// Методы работы с mqtt брокером
+// MQTT-broker
 void mqttMainLooper();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void mqttProceedOnTopicMessageReceived(String msg);
 void publishMqttStatus(LockStatus status);
 void startMqttDiscovery();
 
-// Декларируем функции для работы с картами и замком
+// Common methods for locker & cards processing
 void reboot();
 void activateSolenoid(int waitMs);
 void forceCloseLocker();
@@ -97,25 +102,33 @@ bool isCardAllowed(unsigned char uid[CARD_SIZE]);
 bool compareUID(unsigned char uid1[CARD_SIZE], unsigned char uid2[CARD_SIZE]);
 String printCardUID(unsigned char uid[CARD_SIZE]);
 
-// Внутренний стейт замка
+// Internal locker state
 void setOperationMode(OperatingMode mode);
 bool isCurrentlyOperating(OperatingMode mode);
 void resetOperatingMode();
 
-// Утилитные методы для работы с JSON и HomeAssistant
+// Utilities for JSON & HomeAssistant
 JsonObject createDeviceInfo(JsonDocument& doc);
 JsonObject createAvailabilityInfo(JsonDocument& doc);
 
-// Серийные TX/RX порты для чтения данных антенны
+// RFID antenna serial input
 SoftwareSerial rfidSerial(RFID_RX, RFID_TX);
 
-// Умный дом
+// Home Assistant
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 
-// Текущий режим замка
+// OTA updates http-server
+ESP8266WebServer httpServer(1488);
+ESP8266HTTPUpdateServer httpUpdater;
+
+// Current locker state
 OperatingMode currentMode = NORMAL;
 Ticker timer;
+
+// Вебсервер для обновления
+ESP8266WebServer httpServer(1488);
+ESP8266HTTPUpdateServer httpUpdater;
 
 void setup() {
   Serial.begin(DEFAULT_BAUD_RATE);
@@ -134,6 +147,8 @@ void loop() {
     setupHomeAssistant();
   }
 
+  httpServer.handleClient();
+
   if (rfidSerial.available()) {
     unsigned char cardUID[CARD_SIZE] = {0};
     listenForRFID(cardUID);
@@ -144,6 +159,17 @@ void loop() {
 
   // update watchdog
   ESP.wdtFeed();
+}
+
+void setupOTAUpdate() {
+  httpUpdater.setup(&httpServer, "/firmware", "arkhiotika", password);
+  httpServer.onNotFound(handleNotFound);
+  httpServer.begin();
+  publishDebugLogs("HTTP Update Server ready");
+}
+
+void handleNotFound() {
+  httpServer.send(404, "text/plain", "GO FUCK YOURSELF MOTHERFUCKER!");
 }
 
 void prepareRFID() {
@@ -159,7 +185,6 @@ void prepareSolenoid() {
 }
 
 void setupWatchdog() {
-  // таймер аварийного рестарта
   ESP.wdtEnable(RESTART_LIMIT);
   publishDebugLogs("Emergency restart watchdog has been attached");
 }
@@ -190,12 +215,12 @@ void setupHomeAssistant() {
 
 void taskEstablishWiFiConnection() {
   if (!isCurrentlyOperating(CONNECTING)) {
-    publishDebugLogs("Состояния Wi-Fi: успешно!");
+    publishDebugLogs("Wi-Fi state: connected!");
     return;
   }
 
   Serial.println();
-  Serial.print("Соединение с Wi-Fi: ");
+  Serial.print("Connecting to Wi-Fi: ");
   Serial.println(ssid);
 
   WiFi.begin(ssid, password);
@@ -205,36 +230,38 @@ void taskEstablishWiFiConnection() {
   }
   
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("Wi-Fi подключено");
-    Serial.print("IP-адрес: ");
+    Serial.println("Wi-Fi connected!");
+    Serial.print("Current IP: ");
     Serial.println(WiFi.localIP());
 
     wifiConnected = true;
+
+    setupOTAUpdate();
   } else {
-    publishDebugLogs("\nНе удалось подключиться к Wi-Fi. Попробуем снова.");
+    publishDebugLogs("\nCoudn't connect to Wi-Fi. Trying again.");
     delay(2000);
   }
 }
 
 void taskSubscribeToMQTTBroker() {
   while (!wifiConnected) {
-    publishDebugLogs("Ждём Wi-FI...");
+    publishDebugLogs("Awaiting Wi-FI...");
     delay(1000);
     return;
   }
 
   while (!mqttClient.connected()) {
-    Serial.print("Подключение к MQTT...");
+    Serial.print("Connecting to MQTT...");
     if (mqttClient.connect("ESP8266Client", mqtt_user, mqtt_password)) {
-      publishDebugLogs("Подключено!");
+      publishDebugLogs("Connection established!");
 
       mqttClient.subscribe(mqtt_topic_lock_op);
       publishMqttStatus(BOOTING);
       forceCloseLocker();
     } else {
-      Serial.print("Ошибка, rc=");
+      Serial.print("Error, rc=");
       Serial.print(mqttClient.state());
-      Serial.println(" Попробуем снова через 5 секунд");
+      Serial.println(" Trying again in 5 seconds");
       delay(5000);
     }
   }
@@ -246,7 +273,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     message += (char) payload[i];
   }
 
-  // Управление замком
+  // Operating the locker
   if (String(topic) == mqtt_topic_lock_op) {
     mqttProceedOnTopicMessageReceived(message);
   }
@@ -314,7 +341,6 @@ void publishMqttStatus(LockStatus status) {
 }
 
 void startMqttDiscovery() {
-  // StaticJsonDocument для замка
   StaticJsonDocument<512> lockDoc;
   lockDoc["unique_id"] = "ha_wlock_khaotika";
   lockDoc["object_id"] = "whiskey_locker";
@@ -330,12 +356,12 @@ void startMqttDiscovery() {
   lockDoc["qos"] = 2;
   createDeviceInfo(lockDoc);
 
-  // Отправка замка
+  // The device data itself
   char lockPayload[512];
   serializeJson(lockDoc, lockPayload);
   mqttClient.publish(mqtt_topic_locker_discovery, lockPayload);
 
-  // StaticJsonDocument для кнопки Reboot
+  // Reboot buton
   StaticJsonDocument<512> rebootDoc;
   rebootDoc["unique_id"] = "whiskey_locker_reboot";
   rebootDoc["object_id"] = "whiskey_locker_reboot";
@@ -347,12 +373,12 @@ void startMqttDiscovery() {
   createAvailabilityInfo(rebootDoc);
   createDeviceInfo(rebootDoc);
 
-  // Отправка кнопки Reboot
+  // Send the Reboot button data
   char rebootPayload[512];
   serializeJson(rebootDoc, rebootPayload);
   mqttClient.publish(mqtt_topic_btn_reboot_discovery, rebootPayload);
 
-  // StaticJsonDocument для кнопки Add a new card
+  // Add a new card button
   StaticJsonDocument<512> setupDoc;
   setupDoc["unique_id"] = "whiskey_locker_setup";
   setupDoc["object_id"] = "whiskey_locker_setup";
@@ -364,7 +390,7 @@ void startMqttDiscovery() {
   createAvailabilityInfo(setupDoc);
   createDeviceInfo(setupDoc);
 
-  // Отправка кнопки Add a new card
+  // Send the Add a new card button data
   char setupPayload[512];
   serializeJson(setupDoc, setupPayload);
   mqttClient.publish(mqtt_topic_btn_add_card_discovery, setupPayload);
@@ -379,11 +405,11 @@ void reboot() {
 void activateSolenoid(int waitMs) {
   publishDebugLogs("Operating the locker solenoid");
 
-  // Вращаем сервопривод
+  // Close the relay for solenoid to open th elocker
   digitalWrite(RELAY_PIN1, RELAY_OPEN);
   delay(waitMs); // оставляем замок открытым на 5с
 
-  // Остановка
+  // Open the relay
   digitalWrite(RELAY_PIN1, RELAY_CLOSED);
 
   publishDebugLogs("End the solenoid operation");
@@ -409,12 +435,12 @@ void listenForRFID(unsigned char uid[CARD_SIZE]) {
   while (rfidSerial.available() && index < CARD_SIZE) {
     byte c = rfidSerial.read();
 
-    if (c == 0x02) { // Начало пакета
+    if (c == 0x02) { // Batch start
       isReading = true;
-    } else if (c == 0x03) { // Конец пакета
+    } else if (c == 0x03) { // End of batch
       isReading = false;
     } else if (isReading) {
-      uid[index++] = c; // Добавляем символы к строке
+      uid[index++] = c; // adding symbols...
 
       #ifdef DEBUG
       Serial.println("read() function, and the RFID raw data: ");
@@ -427,18 +453,17 @@ void listenForRFID(unsigned char uid[CARD_SIZE]) {
       #endif
     }
 
-    delay(10); // Стабилизация чтения
+    delay(10); // Stabilize reading
   }
 }
 
 void processCard(unsigned char cardUID[CARD_SIZE]) {
   if (isCardUnset(cardUID)) {
-    memset(cardUID, 0, CARD_SIZE); // Очистить данные
+    memset(cardUID, 0, CARD_SIZE);
     return;
   }
 
   if (isCurrentlyOperating(WAITING_FOR_SETUP)) {
-    // Записываем первую карту как мастер-карту
     saveMasterCard(cardUID);
     publishDebugLogs(printCardUID(cardUID).c_str());
     tripleShortBeep();
@@ -476,13 +501,13 @@ void openLocker() {
   publishMqttStatus(OPEN);
   doubleShortBeep();
 
-  activateSolenoid(5000); // оставляем соленоид открытым на 5 секунд
+  activateSolenoid(5000); // leaving the closed relay for 5 seconds
   publishMqttStatus(LOCKED);
 }
 
 void forceCloseLocker() {
   singleLongBeep();
-  // activateSolenoid(50); // проверяем работу соленоида, открываем его на 50мс
+  activateSolenoid(50); // check the solenoid closing the relay for 50ms
   publishMqttStatus(LOCKED);
 }
 
@@ -527,7 +552,7 @@ void readMasterCard(unsigned char uid[CARD_SIZE]) {
 void addAllowedCard(unsigned char uid[CARD_SIZE]) {
   for (int i = 0; i < MAX_CARDS; i++) {
     int addr = ALLOWED_CARDS_ADDR + i * CARD_SIZE;
-    if (EEPROM.read(addr) == 0xFF) { // Пустая ячейка
+    if (EEPROM.read(addr) == 0xFF) { // empty mem slot
       for (int j = 0; j < CARD_SIZE; j++) {
         EEPROM.write(addr + j, uid[j]);
       }
