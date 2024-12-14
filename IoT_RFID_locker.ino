@@ -126,10 +126,6 @@ ESP8266HTTPUpdateServer httpUpdater;
 OperatingMode currentMode = NORMAL;
 Ticker timer;
 
-// Вебсервер для обновления
-ESP8266WebServer httpServer(1488);
-ESP8266HTTPUpdateServer httpUpdater;
-
 void setup() {
   Serial.begin(DEFAULT_BAUD_RATE);
   setOperationMode(CONNECTING);
