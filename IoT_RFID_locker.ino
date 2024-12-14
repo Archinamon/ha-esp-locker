@@ -42,6 +42,7 @@ const char* mqtt_topic_lock_op    = "home/lock/op";    // Lock operations topic
 const char* mqtt_topic_lock_state = "home/lock/state"; // Sync statuses topic
 const char* mqtt_topic_lock_logs  = "home/lock/logs";  // Debug logs topic (be careful to use only in trusted network)
 
+const char* mqtt_topic_broker_status          = "homeassistant/status";                                             // The broker main status
 const char* mqtt_topic_locker_discovery       = "homeassistant/lock/whiskey_locker/config";                         // The device discovery topic
 const char* mqtt_topic_btn_reboot_discovery   = "homeassistant/button/whiskey_locker/whiskey_locker_reboot/config"; // Reboot button discovery topic
 const char* mqtt_topic_btn_add_card_discovery = "homeassistant/button/whiskey_locker/whiskey_locker_setup/config";  // Add-new-card button discovery topic
@@ -84,6 +85,7 @@ void taskSubscribeToMQTTBroker();
 void mqttMainLooper();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void mqttProceedOnTopicMessageReceived(String msg);
+void mqttProceedOnDeviceStatusMessageReceived(String msg);
 void publishMqttStatus(LockStatus status);
 void startMqttDiscovery();
 
@@ -249,10 +251,12 @@ void taskSubscribeToMQTTBroker() {
   while (!mqttClient.connected()) {
     Serial.print("Connecting to MQTT...");
     if (mqttClient.connect("ESP8266Client", mqtt_user, mqtt_password)) {
+      publishMqttStatus(BOOTING);
       publishDebugLogs("Connection established!");
 
       mqttClient.subscribe(mqtt_topic_lock_op);
-      publishMqttStatus(BOOTING);
+      mqttClient.subscribe(mqtt_topic_broker_status);
+
       forceCloseLocker();
     } else {
       Serial.print("Error, rc=");
@@ -269,9 +273,15 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     message += (char) payload[i];
   }
 
+  String tpc = String(topic);
+
   // Operating the locker
-  if (String(topic) == mqtt_topic_lock_op) {
+  if (tpc == mqtt_topic_lock_op) {
     mqttProceedOnTopicMessageReceived(message);
+  }
+  
+  if (tpc == mqtt_topic_broker_status) {
+    mqttProceedOnDeviceStatusMessageReceived(message);
   }
 }
 
@@ -303,6 +313,15 @@ void mqttProceedOnTopicMessageReceived(String msg) {
     setOperationMode(WAITING_FOR_NEW_CARD);
     timer.once(10, resetOperatingMode);
     publishMqttStatus(SETUP);
+  }
+}
+
+void mqttProceedOnDeviceStatusMessageReceived(String msg) {
+  publishDebugLogs(String("Got message: " + msg).c_str());
+
+  if (msg == "online") {
+    startMqttDiscovery();
+    resetOperatingMode();
   }
 }
 
