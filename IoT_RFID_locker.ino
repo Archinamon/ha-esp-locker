@@ -321,19 +321,20 @@ void mqttProceedOnDeviceStatusMessageReceived(String msg) {
 
   if (msg == "online") {
     startMqttDiscovery();
+    delay(3000); // operation timeout for proper registering the device on HA broker server
     resetOperatingMode();
   }
 }
 
 void singleShortBeep() {
-  tone(BUZZER_PIN, 1000);
+  tone(BUZZER_PIN, 2000);
   delay(200);
   noTone(BUZZER_PIN);
   delay(50);
 }
 
 void singleLongBeep() {
-  tone(BUZZER_PIN, 1000);
+  tone(BUZZER_PIN, 2000);
   delay(1000);
   noTone(BUZZER_PIN);
 }
