@@ -11,6 +11,7 @@ This project is a smart lock based on the ESP8266 microcontroller. It integrates
 - **RFID Card Unlocking** for convenient access.
 - **Remote Control** for locking and unlocking over the internet.
 - **Custom Automation Scenarios** for tailored smart home functionality.
+- **Over-the-Air (OTA) Firmware Updates** for seamless firmware updates over Wi-Fi.
 
 ## Components
 
@@ -49,6 +50,11 @@ This project is a smart lock based on the ESP8266 microcontroller. It integrates
 ### 4. Configure RFID Cards
 - Register cards by touching the antenna with your card or implanted chip.
 - Add unique card IDs for authorization via Home Assistant interface.
+
+### 5. OTA Updates:
+- Use the built-in OTA feature to update firmware without physical access.
+- Access <ip-address_of_devices>:88/firmware to upload the firmware updates.
+- Access <ip-address_of_devices>:88/restart to reboot the device remotely.
 
 ## Usage
 Control the lock via:
